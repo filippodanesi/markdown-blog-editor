@@ -132,30 +132,52 @@ def show_image_dialog():
                 st.session_state.show_image_dialog = False
                 st.rerun()
 
-def setup_tinymce():
-    """Setup TinyMCE editor component"""
-    tinymce_html = """
+def setup_quill():
+    """Setup Quill editor component"""
+    quill_html = """
     <html>
         <head>
-            <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
-            <script>
-                tinymce.init({
-                    selector: '#editor',
-                    height: 700,
-                    menubar: false,
-                    plugins: 'lists link code markdown',
-                    toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright | bullist numlist | link | code | markdown',
-                    content_style: 'body { font-family:Arial,sans-serif; font-size:16px }',
-                    markdown_output: true
-                });
-            </script>
+            <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+            <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+            <style>
+                #editor {
+                    height: 700px;
+                }
+                .ql-editor {
+                    font-size: 16px;
+                    font-family: Arial, sans-serif;
+                }
+            </style>
         </head>
         <body>
-            <textarea id="editor"></textarea>
+            <div id="editor"></div>
+            <script>
+                var quill = new Quill('#editor', {
+                    theme: 'snow',
+                    modules: {
+                        toolbar: [
+                            [{ 'header': [1, 2, 3, false] }],
+                            ['bold', 'italic', 'underline'],
+                            ['link', 'blockquote', 'code-block'],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }]
+                        ]
+                    },
+                    placeholder: 'Write your blog post here...'
+                });
+                
+                // Sync content with Streamlit
+                quill.on('text-change', function() {
+                    var htmlContent = quill.root.innerHTML;
+                    window.parent.postMessage({
+                        type: 'editor_content',
+                        content: htmlContent
+                    }, '*');
+                });
+            </script>
         </body>
     </html>
     """
-    components.html(tinymce_html, height=750)
+    components.html(quill_html, height=750)
 
 def main():
     st.set_page_config(layout="wide", page_title="Blog Editor", page_icon="📝")
@@ -193,7 +215,7 @@ def main():
     
     with col1:
         st.markdown("### Editor")
-        setup_tinymce()
+        setup_quill()
     
     with col2:
         st.markdown("### Preview")
