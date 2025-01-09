@@ -22,10 +22,12 @@ def init_session_state():
                 }
             }
         }
-    if 'show_frontmatter' not in st.session_state:
-        st.session_state.show_frontmatter = False
-    if 'show_images' not in st.session_state:
-        st.session_state.show_images = False
+    if 'show_cover_dialog' not in st.session_state:
+        st.session_state.show_cover_dialog = False
+    if 'show_article_dialog' not in st.session_state:
+        st.session_state.show_article_dialog = False
+    if 'unsplash_html' not in st.session_state:
+        st.session_state.unsplash_html = ''
 
 def slugify(text):
     """Convert title to filename slug"""
@@ -43,72 +45,100 @@ def generate_frontmatter():
 
 def update_preview():
     """Update the markdown preview"""
-    # If frontmatter is enabled, include it in the preview
-    content = st.session_state.markdown_text
-    if st.session_state.show_frontmatter:
-        content = generate_frontmatter() + "\n" + content
-    
-    html = markdown.markdown(content, extensions=['extra'])
+    html = markdown.markdown(st.session_state.markdown_text, extensions=['extra'])
     soup = BeautifulSoup(html, 'html.parser')
     for img in soup.find_all('img'):
-        figure = soup.new_tag('figure')
-        img.wrap(figure)
-        if img.get('alt'):
-            figcaption = soup.new_tag('figcaption')
-            figcaption.string = img.get('alt')
-            figure.append(figcaption)
+        if not img.parent.name == 'figure':
+            figure = soup.new_tag('figure')
+            img.wrap(figure)
+            if img.get('alt'):
+                figcaption = soup.new_tag('figcaption')
+                figcaption.string = img.get('alt')
+                figure.append(figcaption)
     return str(soup)
 
-def create_cover_image():
-    """Generate cover image HTML"""
-    col1, col2 = st.columns(2)
-    with col1:
-        img_path = st.text_input("Cover Image Path", placeholder="/your-image.webp")
-        img_alt = st.text_input("Cover Image Alt Text", placeholder="Descriptive image text")
-    with col2:
-        photographer = st.text_input("Photographer Name", placeholder="Photographer")
-        photographer_url = st.text_input("Photographer URL", placeholder="https://unsplash.com/@photographer")
-        source = st.text_input("Source Name", placeholder="Unsplash")
-        source_url = st.text_input("Source URL", placeholder="https://unsplash.com/photos/...")
+def parse_unsplash_html(html_content):
+    """Parse Unsplash HTML caption and extract components"""
+    soup = BeautifulSoup(html_content, 'html.parser')
     
-    if st.button("Insert Cover Image"):
-        figure_html = f"""
+    # Find the image
+    img = soup.find('img')
+    if img:
+        img_src = img.get('src', '')
+        img_alt = img.get('alt', '')
+    else:
+        return None
+        
+    # Find photographer and source links
+    links = soup.find_all('a')
+    if len(links) >= 2:
+        photographer = links[0].text
+        photographer_url = links[0]['href']
+        source_url = links[1]['href']
+        return {
+            'src': img_src,
+            'alt': img_alt,
+            'photographer': photographer,
+            'photographer_url': photographer_url,
+            'source_url': source_url
+        }
+    return None
+
+def show_cover_dialog():
+    """Show dialog for adding cover image"""
+    with st.sidebar:
+        st.subheader("Add Cover Image")
+        st.markdown("Paste the Unsplash caption HTML here:")
+        
+        # HTML input
+        html_input = st.text_area("HTML from Unsplash", height=150)
+        if html_input:
+            image_data = parse_unsplash_html(html_input)
+            if image_data:
+                figure_html = f"""
 <figure>
-  <img id="cover-img" src="{img_path}" alt="{img_alt}">
-  <figcaption>Photo by <a href="{photographer_url}">{photographer}</a> on <a href="{source_url}">{source}</a></figcaption>
+  <img id="cover-img" src="{image_data['src']}" alt="{image_data['alt']}">
+  <figcaption>Photo by <a href="{image_data['photographer_url']}">{image_data['photographer']}</a> on <a href="{image_data['source_url']}">Unsplash</a></figcaption>
 </figure>
 """
-        st.session_state.markdown_text += figure_html
-        st.session_state.frontmatter['seo']['image']['src'] = img_path
-        st.session_state.frontmatter['seo']['image']['alt'] = img_alt
-        st.session_state.show_images = False
-        st.success("Cover image added!")
+                if st.button("Insert Cover Image"):
+                    st.session_state.markdown_text += figure_html
+                    st.session_state.frontmatter['seo']['image']['src'] = image_data['src']
+                    st.session_state.frontmatter['seo']['image']['alt'] = image_data['alt']
+                    st.session_state.show_cover_dialog = False
+                    st.rerun()
+            else:
+                st.error("Invalid HTML format. Please copy the entire caption from Unsplash.")
 
-def create_article_image():
-    """Generate article image HTML"""
-    col1, col2 = st.columns(2)
-    with col1:
-        img_path = st.text_input("Article Image Path", placeholder="/your-article-image.jpg")
-        img_alt = st.text_input("Article Image Alt Text", placeholder="Chart or figure description")
-    with col2:
-        caption = st.text_input("Image Caption", placeholder="Chart title or description")
-        source_name = st.text_input("Source Name", placeholder="Source Organization")
-        source_url = st.text_input("Source URL", placeholder="https://source.com/data")
-    
-    if st.button("Insert Article Image"):
-        figure_html = f"""
+def show_article_dialog():
+    """Show dialog for adding article image"""
+    with st.sidebar:
+        st.subheader("Add Article Image")
+        
+        # Input fields
+        col1, col2 = st.columns(2)
+        with col1:
+            img_path = st.text_input("Image Path", placeholder="/your-article-image.jpg")
+            img_alt = st.text_input("Alt Text", placeholder="Chart or figure description")
+        with col2:
+            caption = st.text_input("Caption", placeholder="Chart title or description")
+            source_name = st.text_input("Source", placeholder="Source Organization")
+            source_url = st.text_input("URL", placeholder="https://source.com/data")
+        
+        if st.button("Insert Article Image"):
+            figure_html = f"""
 <figure>
   <img id="article-img" src="{img_path}" alt="{img_alt}">
   <figcaption>"{caption}" \\ Source: <a href="{source_url}" target="_blank">{source_name}</a></figcaption>
 </figure>
 """
-        st.session_state.markdown_text += figure_html
-        st.session_state.show_images = False
-        st.success("Article image added!")
+            st.session_state.markdown_text += figure_html
+            st.session_state.show_article_dialog = False
+            st.rerun()
 
 def render_toolbar():
     """Render the formatting toolbar"""
-    cols = st.columns([1,1,1,2,1])
+    cols = st.columns([2,2,2,3])
     
     # Basic formatting
     with cols[0]:
@@ -124,91 +154,48 @@ def render_toolbar():
             st.session_state.markdown_text += "**bold text**"
         if st.button("*Italic*"):
             st.session_state.markdown_text += "*italic text*"
-        if st.button("`Code`"):
-            st.session_state.markdown_text += "`code`"
-            
-    with cols[2]:
-        if st.button("List"):
-            st.session_state.markdown_text += "\n- Item 1\n- Item 2\n- Item 3"
-        if st.button("Numbers"):
-            st.session_state.markdown_text += "\n1. First\n2. Second\n3. Third"
         if st.button("[Link]"):
             st.session_state.markdown_text += "[text](url)"
-    
-    # Frontmatter and Images toggles
-    with cols[3]:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.session_state.show_frontmatter = st.toggle("Show Frontmatter", st.session_state.show_frontmatter)
-        with col2:
-            st.session_state.show_images = st.toggle("Show Image Tools", st.session_state.show_images)
+            
+    # Image buttons
+    with cols[2]:
+        if st.button("🖼️ Cover Image"):
+            st.session_state.show_cover_dialog = not st.session_state.show_cover_dialog
+            st.session_state.show_article_dialog = False
+        if st.button("📊 Article Image"):
+            st.session_state.show_article_dialog = not st.session_state.show_article_dialog
+            st.session_state.show_cover_dialog = False
             
     # Export
-    with cols[4]:
+    with cols[3]:
         if st.session_state.frontmatter['title']:
             complete_post = generate_frontmatter() + "\n" + st.session_state.markdown_text
             filename = slugify(st.session_state.frontmatter['title']) + '.md'
             st.download_button(
-                "📥 Export",
+                "📥 Export Blog Post",
                 complete_post,
                 file_name=filename,
                 mime="text/markdown",
                 use_container_width=True
             )
-
-def render_frontmatter_form():
-    """Render the frontmatter configuration form"""
-    with st.expander("Frontmatter Configuration", expanded=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.session_state.frontmatter['title'] = st.text_input(
-                "Title",
-                value=st.session_state.frontmatter['title']
-            )
-            
-            st.session_state.frontmatter['excerpt'] = st.text_area(
-                "Excerpt",
-                value=st.session_state.frontmatter['excerpt'],
-                height=100
-            )
-        
-        with col2:
-            tags = st.text_input(
-                "Tags (comma-separated)",
-                value=','.join(st.session_state.frontmatter['tags'])
-            )
-            st.session_state.frontmatter['tags'] = [tag.strip() for tag in tags.split(',') if tag]
-            
-            st.session_state.frontmatter['publishDate'] = st.date_input(
-                "Publish Date",
-                value=datetime.strptime(st.session_state.frontmatter['publishDate'], '%Y-%m-%d')
-            ).strftime('%Y-%m-%d')
-
-def render_image_tools():
-    """Render the image management tools"""
-    with st.expander("Image Management", expanded=True):
-        tab1, tab2 = st.tabs(["Cover Image", "Article Image"])
-        
-        with tab1:
-            create_cover_image()
-        
-        with tab2:
-            create_article_image()
+        else:
+            st.text_input("Post Title", 
+                         placeholder="Enter a title to enable export",
+                         value=st.session_state.frontmatter['title'],
+                         on_change=lambda: setattr(st.session_state.frontmatter, 'title', st.session_state.frontmatter['title']))
 
 def main():
     st.set_page_config(layout="wide", page_title="Blog Editor", page_icon="📝")
     init_session_state()
 
-    # Header and toolbar
-    st.title("📝 Markdown Blog Editor")
+    # Render toolbar
     render_toolbar()
     
-    # Conditional forms
-    if st.session_state.show_frontmatter:
-        render_frontmatter_form()
-    if st.session_state.show_images:
-        render_image_tools()
+    # Show dialogs if active
+    if st.session_state.show_cover_dialog:
+        show_cover_dialog()
+    elif st.session_state.show_article_dialog:
+        show_article_dialog()
         
     # Main editor and preview
     col1, col2 = st.columns(2)
@@ -219,7 +206,7 @@ def main():
         st.session_state.markdown_text = st.text_area(
             "Edit your content here",
             value=st.session_state.markdown_text,
-            height=600,
+            height=700,
             label_visibility="collapsed"
         )
     
