@@ -22,8 +22,10 @@ def init_session_state():
                 }
             }
         }
-    if 'current_section' not in st.session_state:
-        st.session_state.current_section = 'write'
+    if 'show_frontmatter' not in st.session_state:
+        st.session_state.show_frontmatter = False
+    if 'show_images' not in st.session_state:
+        st.session_state.show_images = False
 
 def slugify(text):
     """Convert title to filename slug"""
@@ -41,7 +43,12 @@ def generate_frontmatter():
 
 def update_preview():
     """Update the markdown preview"""
-    html = markdown.markdown(st.session_state.markdown_text, extensions=['extra'])
+    # If frontmatter is enabled, include it in the preview
+    content = st.session_state.markdown_text
+    if st.session_state.show_frontmatter:
+        content = generate_frontmatter() + "\n" + content
+    
+    html = markdown.markdown(content, extensions=['extra'])
     soup = BeautifulSoup(html, 'html.parser')
     for img in soup.find_all('img'):
         figure = soup.new_tag('figure')
@@ -74,6 +81,7 @@ def create_cover_image():
         st.session_state.markdown_text += figure_html
         st.session_state.frontmatter['seo']['image']['src'] = img_path
         st.session_state.frontmatter['seo']['image']['alt'] = img_alt
+        st.session_state.show_images = False
         st.success("Cover image added!")
 
 def create_article_image():
@@ -95,134 +103,130 @@ def create_article_image():
 </figure>
 """
         st.session_state.markdown_text += figure_html
+        st.session_state.show_images = False
         st.success("Article image added!")
 
-def render_editor():
-    """Render the main editor interface"""
-    st.markdown("### Content Editor")
+def render_toolbar():
+    """Render the formatting toolbar"""
+    cols = st.columns([1,1,1,2,1])
     
-    # Quick formatting toolbar
-    cols = st.columns(5)
-    if cols[0].button("H2"):
-        st.session_state.markdown_text += "\n## "
-    if cols[1].button("H3"):
-        st.session_state.markdown_text += "\n### "
-    if cols[2].button("Bold"):
-        st.session_state.markdown_text += "**bold text**"
-    if cols[3].button("Link"):
-        st.session_state.markdown_text += "[text](url)"
-    if cols[4].button("List"):
-        st.session_state.markdown_text += "\n- Item 1\n- Item 2\n- Item 3"
+    # Basic formatting
+    with cols[0]:
+        if st.button("# H1"):
+            st.session_state.markdown_text += "\n# "
+        if st.button("## H2"):
+            st.session_state.markdown_text += "\n## "
+        if st.button("### H3"):
+            st.session_state.markdown_text += "\n### "
+            
+    with cols[1]:
+        if st.button("**Bold**"):
+            st.session_state.markdown_text += "**bold text**"
+        if st.button("*Italic*"):
+            st.session_state.markdown_text += "*italic text*"
+        if st.button("`Code`"):
+            st.session_state.markdown_text += "`code`"
+            
+    with cols[2]:
+        if st.button("List"):
+            st.session_state.markdown_text += "\n- Item 1\n- Item 2\n- Item 3"
+        if st.button("Numbers"):
+            st.session_state.markdown_text += "\n1. First\n2. Second\n3. Third"
+        if st.button("[Link]"):
+            st.session_state.markdown_text += "[text](url)"
     
-    # Main editor
-    st.session_state.markdown_text = st.text_area(
-        "Edit your content here",
-        value=st.session_state.markdown_text,
-        height=500
-    )
-
-def render_frontmatter():
-    """Render the frontmatter configuration interface"""
-    st.markdown("### Frontmatter Configuration")
-    
-    # Basic metadata
-    st.session_state.frontmatter['title'] = st.text_input(
-        "Title",
-        value=st.session_state.frontmatter['title']
-    )
-    
-    st.session_state.frontmatter['excerpt'] = st.text_area(
-        "Excerpt",
-        value=st.session_state.frontmatter['excerpt'],
-        height=100
-    )
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        tags = st.text_input(
-            "Tags (comma-separated)",
-            value=','.join(st.session_state.frontmatter['tags'])
-        )
-        st.session_state.frontmatter['tags'] = [tag.strip() for tag in tags.split(',') if tag]
-    
-    with col2:
-        st.session_state.frontmatter['publishDate'] = st.date_input(
-            "Publish Date",
-            value=datetime.strptime(st.session_state.frontmatter['publishDate'], '%Y-%m-%d')
-        ).strftime('%Y-%m-%d')
-
-def render_images():
-    """Render the image management interface"""
-    st.markdown("### Image Management")
-    
-    tab1, tab2 = st.tabs(["Cover Image", "Article Image"])
-    
-    with tab1:
-        create_cover_image()
-    
-    with tab2:
-        create_article_image()
-
-def render_preview():
-    """Render the preview interface"""
-    st.markdown("### Preview")
-    
-    with st.expander("Frontmatter Preview", expanded=True):
-        st.code(generate_frontmatter(), language='yaml')
-    
-    st.markdown("### Content Preview")
-    st.markdown(update_preview(), unsafe_allow_html=True)
-
-def main():
-    st.set_page_config(layout="wide", page_title="Blog Editor", page_icon="📝")
-    init_session_state()
-
-    # Header
-    st.title("📝 Blog Post Editor")
-    
-    # Navigation
-    sections = {
-        'write': '✏️ Write',
-        'frontmatter': '🔧 Frontmatter',
-        'images': '🖼️ Images',
-        'preview': '👁️ Preview'
-    }
-    
-    st.session_state.current_section = st.radio(
-        "Navigation",
-        options=list(sections.keys()),
-        format_func=lambda x: sections[x],
-        horizontal=True
-    )
-    
-    st.divider()
-
-    # Main content area
-    if st.session_state.current_section == 'write':
-        render_editor()
-    elif st.session_state.current_section == 'frontmatter':
-        render_frontmatter()
-    elif st.session_state.current_section == 'images':
-        render_images()
-    else:  # preview
-        render_preview()
-    
-    # Export section (always visible)
-    st.divider()
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    # Frontmatter and Images toggles
+    with cols[3]:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.session_state.show_frontmatter = st.toggle("Show Frontmatter", st.session_state.show_frontmatter)
+        with col2:
+            st.session_state.show_images = st.toggle("Show Image Tools", st.session_state.show_images)
+            
+    # Export
+    with cols[4]:
         if st.session_state.frontmatter['title']:
             complete_post = generate_frontmatter() + "\n" + st.session_state.markdown_text
             filename = slugify(st.session_state.frontmatter['title']) + '.md'
             st.download_button(
-                "📥 Download Blog Post",
+                "📥 Export",
                 complete_post,
                 file_name=filename,
                 mime="text/markdown",
                 use_container_width=True
             )
-        else:
-            st.warning("Please add a title in the Frontmatter section before exporting")
+
+def render_frontmatter_form():
+    """Render the frontmatter configuration form"""
+    with st.expander("Frontmatter Configuration", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.session_state.frontmatter['title'] = st.text_input(
+                "Title",
+                value=st.session_state.frontmatter['title']
+            )
+            
+            st.session_state.frontmatter['excerpt'] = st.text_area(
+                "Excerpt",
+                value=st.session_state.frontmatter['excerpt'],
+                height=100
+            )
+        
+        with col2:
+            tags = st.text_input(
+                "Tags (comma-separated)",
+                value=','.join(st.session_state.frontmatter['tags'])
+            )
+            st.session_state.frontmatter['tags'] = [tag.strip() for tag in tags.split(',') if tag]
+            
+            st.session_state.frontmatter['publishDate'] = st.date_input(
+                "Publish Date",
+                value=datetime.strptime(st.session_state.frontmatter['publishDate'], '%Y-%m-%d')
+            ).strftime('%Y-%m-%d')
+
+def render_image_tools():
+    """Render the image management tools"""
+    with st.expander("Image Management", expanded=True):
+        tab1, tab2 = st.tabs(["Cover Image", "Article Image"])
+        
+        with tab1:
+            create_cover_image()
+        
+        with tab2:
+            create_article_image()
+
+def main():
+    st.set_page_config(layout="wide", page_title="Blog Editor", page_icon="📝")
+    init_session_state()
+
+    # Header and toolbar
+    st.title("📝 Markdown Blog Editor")
+    render_toolbar()
+    
+    # Conditional forms
+    if st.session_state.show_frontmatter:
+        render_frontmatter_form()
+    if st.session_state.show_images:
+        render_image_tools()
+        
+    # Main editor and preview
+    col1, col2 = st.columns(2)
+    
+    # Editor column
+    with col1:
+        st.markdown("### Editor")
+        st.session_state.markdown_text = st.text_area(
+            "Edit your content here",
+            value=st.session_state.markdown_text,
+            height=600,
+            label_visibility="collapsed"
+        )
+    
+    # Preview column
+    with col2:
+        st.markdown("### Preview")
+        st.markdown(update_preview(), unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
