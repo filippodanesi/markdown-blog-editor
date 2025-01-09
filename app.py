@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import yaml
 from datetime import datetime
 import markdown
@@ -22,12 +23,10 @@ def init_session_state():
                 }
             }
         }
-    if 'show_cover_dialog' not in st.session_state:
-        st.session_state.show_cover_dialog = False
-    if 'show_article_dialog' not in st.session_state:
-        st.session_state.show_article_dialog = False
-    if 'unsplash_html' not in st.session_state:
-        st.session_state.unsplash_html = ''
+    if 'show_image_dialog' not in st.session_state:
+        st.session_state.show_image_dialog = False
+    if 'image_type' not in st.session_state:
+        st.session_state.image_type = None
 
 def slugify(text):
     """Convert title to filename slug"""
@@ -47,170 +46,155 @@ def update_preview():
     """Update the markdown preview"""
     html = markdown.markdown(st.session_state.markdown_text, extensions=['extra'])
     soup = BeautifulSoup(html, 'html.parser')
-    for img in soup.find_all('img'):
-        if not img.parent.name == 'figure':
-            figure = soup.new_tag('figure')
-            img.wrap(figure)
-            if img.get('alt'):
-                figcaption = soup.new_tag('figcaption')
-                figcaption.string = img.get('alt')
-                figure.append(figcaption)
     return str(soup)
 
 def parse_unsplash_html(html_content):
     """Parse Unsplash HTML caption and extract components"""
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # Find the image
-    img = soup.find('img')
-    if img:
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        img = soup.find('img')
+        if not img:
+            return None
+
+        # Extract image details
         img_src = img.get('src', '')
         img_alt = img.get('alt', '')
-    else:
-        return None
         
-    # Find photographer and source links
-    links = soup.find_all('a')
-    if len(links) >= 2:
-        photographer = links[0].text
-        photographer_url = links[0]['href']
-        source_url = links[1]['href']
+        # Find photographer and source links
+        links = soup.find_all('a')
+        if len(links) < 2:
+            return None
+
+        photographer_link = links[0]
+        source_link = links[1]
+        
+        # Extract UTM parameters if they exist
+        utm_params = '?utm_content=creditCopyText&utm_medium=referral&utm_source=unsplash'
+        photographer_url = photographer_link['href']
+        if '?' not in photographer_url:
+            photographer_url += utm_params
+        
+        source_url = source_link['href']
+        if '?' not in source_url:
+            source_url += utm_params
+
         return {
             'src': img_src,
             'alt': img_alt,
-            'photographer': photographer,
+            'photographer': photographer_link.text,
             'photographer_url': photographer_url,
             'source_url': source_url
         }
-    return None
+    except Exception as e:
+        st.error(f"Error parsing HTML: {str(e)}")
+        return None
 
-def show_cover_dialog():
-    """Show dialog for adding cover image"""
+def show_image_dialog():
+    """Show dialog for adding images"""
     with st.sidebar:
-        st.subheader("Add Cover Image")
-        st.markdown("Paste the Unsplash caption HTML here:")
-        
-        # HTML input
-        html_input = st.text_area("HTML from Unsplash", height=150)
-        if html_input:
-            image_data = parse_unsplash_html(html_input)
-            if image_data:
-                figure_html = f"""
-<figure>
+        if st.session_state.image_type == 'cover':
+            st.subheader("Add Cover Image")
+            st.info("Paste the Unsplash caption HTML here")
+            html_input = st.text_area("HTML from Unsplash", height=150)
+            
+            if html_input:
+                image_data = parse_unsplash_html(html_input)
+                if image_data:
+                    figure_html = f"""<figure>
   <img id="cover-img" src="{image_data['src']}" alt="{image_data['alt']}">
   <figcaption>Photo by <a href="{image_data['photographer_url']}">{image_data['photographer']}</a> on <a href="{image_data['source_url']}">Unsplash</a></figcaption>
 </figure>
 """
-                if st.button("Insert Cover Image"):
-                    st.session_state.markdown_text += figure_html
-                    st.session_state.frontmatter['seo']['image']['src'] = image_data['src']
-                    st.session_state.frontmatter['seo']['image']['alt'] = image_data['alt']
-                    st.session_state.show_cover_dialog = False
-                    st.rerun()
-            else:
-                st.error("Invalid HTML format. Please copy the entire caption from Unsplash.")
+                    if st.button("Insert Cover Image"):
+                        st.session_state.markdown_text = figure_html + "\n\n" + st.session_state.markdown_text
+                        st.session_state.frontmatter['seo']['image']['src'] = image_data['src']
+                        st.session_state.frontmatter['seo']['image']['alt'] = image_data['alt']
+                        st.session_state.show_image_dialog = False
+                        st.rerun()
 
-def show_article_dialog():
-    """Show dialog for adding article image"""
-    with st.sidebar:
-        st.subheader("Add Article Image")
-        
-        # Input fields
-        col1, col2 = st.columns(2)
-        with col1:
-            img_path = st.text_input("Image Path", placeholder="/your-article-image.jpg")
-            img_alt = st.text_input("Alt Text", placeholder="Chart or figure description")
-        with col2:
-            caption = st.text_input("Caption", placeholder="Chart title or description")
-            source_name = st.text_input("Source", placeholder="Source Organization")
-            source_url = st.text_input("URL", placeholder="https://source.com/data")
-        
-        if st.button("Insert Article Image"):
-            figure_html = f"""
-<figure>
+        elif st.session_state.image_type == 'article':
+            st.subheader("Add Article Image")
+            img_path = st.text_input("Image Path", placeholder="/chart-image.jpg")
+            img_alt = st.text_input("Alt Text (Detailed description)", placeholder="A chart showing...")
+            caption = st.text_input("Caption", placeholder="Chart title or short description")
+            source_name = st.text_input("Source Name", placeholder="Organization name")
+            source_url = st.text_input("Source URL", placeholder="https://source.com/data")
+            author = st.text_input("Author (optional)", placeholder="Author name")
+            
+            if st.button("Insert Article Image"):
+                author_text = f", by {author}" if author else ""
+                figure_html = f"""<figure>
   <img id="article-img" src="{img_path}" alt="{img_alt}">
-  <figcaption>"{caption}" \\ Source: <a href="{source_url}" target="_blank">{source_name}</a></figcaption>
+  <figcaption>"{caption}" \\ Source: <a href="{source_url}" target="_blank">{source_name}</a>{author_text}</figcaption>
 </figure>
 """
-            st.session_state.markdown_text += figure_html
-            st.session_state.show_article_dialog = False
-            st.rerun()
+                st.session_state.markdown_text += "\n\n" + figure_html + "\n"
+                st.session_state.show_image_dialog = False
+                st.rerun()
 
-def render_toolbar():
-    """Render the formatting toolbar"""
-    cols = st.columns([2,2,2,3])
-    
-    # Basic formatting
-    with cols[0]:
-        if st.button("# H1"):
-            st.session_state.markdown_text += "\n# "
-        if st.button("## H2"):
-            st.session_state.markdown_text += "\n## "
-        if st.button("### H3"):
-            st.session_state.markdown_text += "\n### "
-            
-    with cols[1]:
-        if st.button("**Bold**"):
-            st.session_state.markdown_text += "**bold text**"
-        if st.button("*Italic*"):
-            st.session_state.markdown_text += "*italic text*"
-        if st.button("[Link]"):
-            st.session_state.markdown_text += "[text](url)"
-            
-    # Image buttons
-    with cols[2]:
-        if st.button("🖼️ Cover Image"):
-            st.session_state.show_cover_dialog = not st.session_state.show_cover_dialog
-            st.session_state.show_article_dialog = False
-        if st.button("📊 Article Image"):
-            st.session_state.show_article_dialog = not st.session_state.show_article_dialog
-            st.session_state.show_cover_dialog = False
-            
-    # Export
-    with cols[3]:
-        if st.session_state.frontmatter['title']:
-            complete_post = generate_frontmatter() + "\n" + st.session_state.markdown_text
-            filename = slugify(st.session_state.frontmatter['title']) + '.md'
-            st.download_button(
-                "📥 Export Blog Post",
-                complete_post,
-                file_name=filename,
-                mime="text/markdown",
-                use_container_width=True
-            )
-        else:
-            st.text_input("Post Title", 
-                         placeholder="Enter a title to enable export",
-                         value=st.session_state.frontmatter['title'],
-                         on_change=lambda: setattr(st.session_state.frontmatter, 'title', st.session_state.frontmatter['title']))
+def setup_tinymce():
+    """Setup TinyMCE editor component"""
+    tinymce_html = """
+    <html>
+        <head>
+            <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+            <script>
+                tinymce.init({
+                    selector: '#editor',
+                    height: 700,
+                    menubar: false,
+                    plugins: 'lists link code markdown',
+                    toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright | bullist numlist | link | code | markdown',
+                    content_style: 'body { font-family:Arial,sans-serif; font-size:16px }',
+                    markdown_output: true
+                });
+            </script>
+        </head>
+        <body>
+            <textarea id="editor"></textarea>
+        </body>
+    </html>
+    """
+    components.html(tinymce_html, height=750)
 
 def main():
     st.set_page_config(layout="wide", page_title="Blog Editor", page_icon="📝")
     init_session_state()
 
-    # Render toolbar
-    render_toolbar()
-    
-    # Show dialogs if active
-    if st.session_state.show_cover_dialog:
-        show_cover_dialog()
-    elif st.session_state.show_article_dialog:
-        show_article_dialog()
-        
-    # Main editor and preview
+    # Top bar with title input and buttons
+    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+    with col1:
+        title = st.text_input("Post Title", value=st.session_state.frontmatter['title'])
+        if title:
+            st.session_state.frontmatter['title'] = title
+
+    with col2:
+        if st.button("🖼️ Add Cover Image"):
+            st.session_state.show_image_dialog = True
+            st.session_state.image_type = 'cover'
+            
+    with col3:
+        if st.button("📊 Add Article Image"):
+            st.session_state.show_image_dialog = True
+            st.session_state.image_type = 'article'
+            
+    with col4:
+        if st.session_state.frontmatter['title']:
+            complete_post = generate_frontmatter() + "\n" + st.session_state.markdown_text
+            filename = slugify(st.session_state.frontmatter['title']) + '.md'
+            st.download_button("📥 Export", complete_post, file_name=filename, mime="text/markdown")
+
+    # Show image dialog if active
+    if st.session_state.show_image_dialog:
+        show_image_dialog()
+
+    # Main content area
     col1, col2 = st.columns(2)
     
-    # Editor column
     with col1:
         st.markdown("### Editor")
-        st.session_state.markdown_text = st.text_area(
-            "Edit your content here",
-            value=st.session_state.markdown_text,
-            height=700,
-            label_visibility="collapsed"
-        )
+        setup_tinymce()
     
-    # Preview column
     with col2:
         st.markdown("### Preview")
         st.markdown(update_preview(), unsafe_allow_html=True)
