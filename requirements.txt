@@ -2,3 +2,4 @@ streamlit
 PyYAML
 markdown
 beautifulsoup4
+lxml
