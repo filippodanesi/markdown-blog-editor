@@ -136,23 +136,20 @@ def create_editor():
                     <button onclick="insertLink()" title="Insert Link">🔗</button>
                 </div>
                 <div class="toolbar-group">
-                    <button onclick="window.parent.postMessage({type: 'insert_image', imageType: 'cover'}, '*')" title="Cover Image">🖼️</button>
-                    <button onclick="window.parent.postMessage({type: 'insert_image', imageType: 'article'}, '*')" title="Article Image">📊</button>
+                    <button onclick="insertImage('cover')" title="Cover Image">🖼️</button>
+                    <button onclick="insertImage('article')" title="Article Image">📊</button>
                 </div>
             </div>
-            <textarea id="editor" spellcheck="true"></textarea>
+            <textarea id="editor" spellcheck="true">{st.session_state.content}</textarea>
         </div>
 
         <script>
             const editor = document.getElementById('editor');
             
-            // Initialize with any existing content
-            editor.value = window.name || '';
-            
             editor.addEventListener('input', () => {
                 window.parent.postMessage({
-                    type: 'editor_content',
-                    content: editor.value
+                    type: 'streamlit:setComponentValue',
+                    data: editor.value
                 }, '*');
             });
 
@@ -164,25 +161,22 @@ def create_editor():
                 };
             }
 
-            function insertAtCursor(text, moveOffset = 0) {
+            function insertAtCursor(text) {
                 const { start, end } = getSelection();
                 editor.value = editor.value.substring(0, start) + 
                              text + 
                              editor.value.substring(end);
                 
-                // Update cursor position
-                const newPos = start + text.length + moveOffset;
                 editor.focus();
+                const newPos = start + text.length;
                 editor.setSelectionRange(newPos, newPos);
-                
-                // Trigger input event for content sync
                 editor.dispatchEvent(new Event('input'));
             }
 
             function insertHeading(level) {
                 const { text } = getSelection();
                 const prefix = '#'.repeat(level) + ' ';
-                insertAtCursor(text ? prefix + text : prefix);
+                insertAtCursor(text ? prefix + text + '\\n' : prefix);
             }
 
             function insertFormat(type) {
@@ -197,11 +191,9 @@ def create_editor():
                         formatted = `*${text || 'italic text'}*`;
                         break;
                     case 'code':
-                        if (text.includes('\n')) {
-                            formatted = `\`\`\`\n${text || 'code'}\n\`\`\``;
-                        } else {
-                            formatted = `\`${text || 'code'}\``;
-                        }
+                        formatted = text.includes('\\n') 
+                            ? `\`\`\`\\n${text || 'code'}\\n\`\`\`` 
+                            : `\`${text || 'code'}\``;
                         break;
                 }
                 
@@ -213,15 +205,13 @@ def create_editor():
                 let formatted = '';
                 
                 if (text) {
-                    const lines = text.split('\n');
+                    const lines = text.split('\\n');
                     formatted = lines
-                        .map((line, i) => {
-                            if (!line.trim()) return '';
-                            return type === 'ordered' ? 
-                                `${i + 1}. ${line}` : 
-                                `- ${line}`;
-                        })
-                        .join('\n');
+                        .filter(line => line.trim())
+                        .map((line, i) => type === 'ordered' 
+                            ? `${i + 1}. ${line}` 
+                            : `- ${line}`)
+                        .join('\\n') + '\\n';
                 } else {
                     formatted = type === 'ordered' ? '1. ' : '- ';
                 }
@@ -238,22 +228,19 @@ def create_editor():
                 }
             }
 
-            // Handle messages from Streamlit
-            window.addEventListener('message', function(e) {
-                if (e.data.type === 'update_content') {
-                    editor.value = e.data.content;
-                }
-            });
+            function insertImage(type) {
+                const dialogType = type === 'cover' ? 'cover-image' : 'article-image';
+                window.parent.postMessage({
+                    type: 'streamlit:setComponentValue',
+                    data: { dialog: dialogType }
+                }, '*');
+            }
         </script>
     </body>
     </html>
     """
     
-    # Create unique key for component
-    key = f"editor_{datetime.now().timestamp()}"
-    
-    # Return the component
-    return components.html(editor_html, height=700, key=key)
+    return components.html(editor_html, height=700)
 
 def show_image_dialog(image_type):
     """Show dialog for adding images"""
