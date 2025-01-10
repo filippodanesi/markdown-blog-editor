@@ -110,6 +110,9 @@ def insert_figure(figure_type, data):
 def main():
     st.set_page_config(layout="wide", page_title="Blog Editor", page_icon="📝")
     initialize_state()
+    
+    if 'format_result' not in st.session_state:
+        st.session_state.format_result = None
 
     # Top bar
     col1, col2 = st.columns([4, 1])
@@ -128,9 +131,9 @@ def main():
 
     # Insert menu
     insert_options = {
+        'Format Text': lambda: show_basic_elements(),
         'Cover Image from Unsplash': lambda: show_cover_dialog(),
         'Article Image': lambda: show_article_dialog(),
-        'Basic Elements': lambda: show_basic_elements()
     }
     
     selected = st.selectbox("Insert", options=list(insert_options.keys()),
@@ -146,8 +149,12 @@ def main():
         content = st.text_area("Content", value=st.session_state.content,
                              height=600, label_visibility="collapsed",
                              key="editor")
-        if content != st.session_state.content:
+                             
+        # Handle formatted text insertion
+        if st.session_state.format_result is not None:
             st.session_state.content = content
+            st.session_state.format_result = None
+            st.rerun()
 
     with col2:
         st.markdown("### Preview")
@@ -205,22 +212,53 @@ def show_article_dialog():
             })
             st.success("Article image added!")
 
+def insert_formatted_text(format_type, selection=''):
+    """Insert formatted text handling selection"""
+    formats = {
+        'h1': f"# {selection}",
+        'h2': f"## {selection}",
+        'h3': f"### {selection}",
+        'bold': f"**{selection}**",
+        'italic': f"*{selection}*",
+        'list': "\n".join([f"- {line}" for line in selection.split('\n') if line.strip()]) if selection else "- ",
+        'code': f"`{selection}`" if len(selection.split('\n')) == 1 else f"```\n{selection}\n```"
+    }
+    
+    if format_type in formats:
+        return formats[format_type]
+    return selection
+
 def show_basic_elements():
     with st.sidebar:
-        st.markdown("### Add Basic Elements")
-        elements = {
-            'Heading 2': '\n## ',
-            'Heading 3': '\n### ',
-            'Bold Text': '**bold text**',
-            'Italic Text': '*italic text*',
-            'Link': '[text](url)',
-            'List': '\n- Item 1\n- Item 2\n- Item 3\n',
-            'Code Block': '\n```\ncode\n```\n'
-        }
+        st.markdown("### Text Formatting")
+        st.info("First select text in editor, then click format button")
         
-        for name, content in elements.items():
-            if st.button(name):
-                st.session_state.content += content
+        selection = st.text_area("Selected Text", height=100, key="selection")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("# H1"):
+                st.session_state.format_result = insert_formatted_text('h1', selection)
+            if st.button("## H2"):
+                st.session_state.format_result = insert_formatted_text('h2', selection)
+            if st.button("### H3"):
+                st.session_state.format_result = insert_formatted_text('h3', selection)
+        
+        with col2:
+            if st.button("Bold"):
+                st.session_state.format_result = insert_formatted_text('bold', selection)
+            if st.button("Italic"):
+                st.session_state.format_result = insert_formatted_text('italic', selection)
+            if st.button("List"):
+                st.session_state.format_result = insert_formatted_text('list', selection)
+
+        st.divider()
+        st.markdown("### Add Link")
+        link_text = selection if selection else st.text_input("Link Text")
+        link_url = st.text_input("Link URL")
+        
+        if st.button("Insert Link") and link_text:
+            st.session_state.format_result = f"[{link_text}]({link_url})"
 
 if __name__ == "__main__":
     main()
